@@ -1,6 +1,6 @@
 streamlit==1.32.0
 plotly==5.18.0
-pandas==2.0.3
+pandas==2.1.0
 numpy>=1.26.0  # Version compatible Python 3.12
 streamlit-aggrid==0.3.3
 rich==13.7.1  # Version compatible Streamlit
