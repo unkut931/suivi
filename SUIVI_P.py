@@ -179,7 +179,7 @@ elif menu == "Historique":
         with col3:
             date_filter = st.date_input("Date", datetime.today(), key="hist_date")
 
-    # Requête SQL modifiée pour formater les dates
+    # Requête SQL pour l'historique
     query_hist = """
     SELECT 
         m.nom AS Machine,
@@ -189,7 +189,8 @@ elif menu == "Historique":
         p.realise AS Réalisé,
         ROUND(CAST(p.realise AS FLOAT) / NULLIF(p.objectif, 0) * 100, 1) AS '% Réalisation',
         COALESCE(GROUP_CONCAT(a.type || ': ' || a.duree || 'h', ' / '), '-') AS Arrêts,
-        COALESCE(o.commentaire, '-') AS Observation
+        COALESCE(o.commentaire, '-') AS Observation,
+        p.id AS production_id  # Ajout de l'ID pour la suppression
     FROM production p
     JOIN machines m ON p.machine_id = m.id
     LEFT JOIN arrets a ON a.production_id = p.id
@@ -206,38 +207,40 @@ elif menu == "Historique":
         params=(machine_filter, machine_filter, shift_filter, shift_filter, date_filter.isoformat())
     )
 
-    # Conversion des types de données
-    history_df['Date'] = history_df['Date'].astype(str)
+    # Ajout d'une colonne de sélection
+    history_df['Select'] = False
     
+    # Fonction pour afficher les cases à cocher
+    def display_with_checkboxes(df):
+        df_copy = df.copy()
+        df_copy['Select'] = [st.checkbox("", key=f"select_{i}", value=False) 
+                           for i in range(len(df))]
+        return df_copy
+
     st.subheader("Données Historiques")
     
-    # Solution avec st.data_editor (recommandé)
-    edited_df = st.data_editor(
-        history_df,
-        key="history_editor",
-        num_rows="fixed",
-        use_container_width=True,
-        disabled=["Machine", "Date", "Shift"]  # Colonnes non modifiables
-    )
-    
-    # Gestion de la sélection et suppression
-    if st.button("🗑️ Supprimer la ligne sélectionnée"):
-        if len(edited_df) > 0:
-            selected_indices = st.session_state.get("history_editor", {}).get("edited_rows", {}).keys()
+    if not history_df.empty:
+        # Afficher les données avec des cases à cocher
+        edited_df = display_with_checkboxes(history_df)
+        st.dataframe(edited_df.drop(columns=['production_id']),  # Masquer l'ID technique
+                    use_container_width=True,
+                    hide_index=True)
+        
+        # Bouton de suppression
+        if st.button("🗑️ Supprimer les lignes sélectionnées"):
+            selected_indices = [i for i, row in enumerate(edited_df['Select']) if row]
             if selected_indices:
-                selected_row = history_df.iloc[list(selected_indices)[0]]
-                cursor.execute(
-                    "DELETE FROM production WHERE machine_id = (SELECT id FROM machines WHERE nom = ?) AND date = ? AND shift = ?",
-                    (selected_row['Machine'], selected_row['Date'], selected_row['Shift'])
-                )
+                for idx in selected_indices:
+                    prod_id = edited_df.iloc[idx]['production_id']
+                    # Suppression en cascade (arrets et observations seront supprimés automatiquement)
+                    cursor.execute("DELETE FROM production WHERE id = ?", (prod_id,))
                 conn.commit()
-                st.success("Ligne supprimée avec succès")
+                st.success(f"{len(selected_indices)} ligne(s) supprimée(s) avec succès")
                 st.rerun()
             else:
-                st.warning("Veuillez sélectionner une ligne à supprimer")
-        else:
-            st.warning("Aucune donnée disponible")
-
+                st.warning("Veuillez sélectionner au moins une ligne à supprimer")
+    else:
+        st.info("Aucune donnée disponible pour les critères sélectionnés")
 elif menu == "Rapport":
     st.title("📄 Rapport")
     with st.expander("🔎 Filtres", expanded=True):
