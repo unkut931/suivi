@@ -1,5 +1,5 @@
 streamlit==1.22.0
-plotly==5.15.0  # Version stable avec express
+plotly==5.15.0
 pandas==2.0.3
 numpy==1.24.3
 streamlit-aggrid==0.3.3
