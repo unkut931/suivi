@@ -204,11 +204,23 @@ elif menu == "Historique":
         query_hist, conn,
         params=(machine_filter, machine_filter, shift_filter, shift_filter, date_filter.isoformat())
     )
+    
+    # Conversion des dates en strings pour éviter les problèmes avec AgGrid
+    history_df['Date'] = history_df['Date'].astype(str)
 
     st.subheader("Données Historiques (modifiable)")
     gb = GridOptionsBuilder.from_dataframe(history_df)
-    gb.configure_default_column(editable=True)
-    gb.configure_selection(selection_mode="single", use_checkbox=True)
+    gb.configure_default_column(
+        editable=True,
+        filterable=True,
+        sortable=True,
+        resizable=True
+    )
+    gb.configure_selection(
+        selection_mode="single",
+        use_checkbox=True,
+        pre_selected_rows=[]
+    )
     gridOptions = gb.build()
 
     grid_response = AgGrid(
@@ -217,17 +229,13 @@ elif menu == "Historique":
         update_mode=GridUpdateMode.MODEL_CHANGED | GridUpdateMode.SELECTION_CHANGED,
         allow_unsafe_jscode=True,
         enable_enterprise_modules=True,
-        height=400
+        height=400,
+        theme='streamlit'  # Utiliser le thème natif de Streamlit
     )
 
-    selected = grid_response.get('selected_rows', [])
-    st.write("DEBUG selected:", selected)  # Debug : affiche la sélection
-
-    # Si selected est un DataFrame (rare), convertissez-le en liste de dicts
-    if hasattr(selected, "to_dict"):
-        selected = selected.to_dict(orient="records")
-
-    if isinstance(selected, list) and len(selected) > 0:
+    selected = grid_response['selected_rows']
+    
+    if selected:
         row = selected[0]
         st.warning(
             f"Vous avez sélectionné : Machine={row['Machine']}, Date={row['Date']}, Shift={row['Shift']}"
