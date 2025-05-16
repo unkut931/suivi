@@ -1,5 +1,7 @@
 streamlit==1.32.0
-plotly==5.18.0  # Version explicite
+plotly==5.18.0
 pandas==2.0.3
 numpy==1.24.3
 streamlit-aggrid==0.3.3
+markdown-it-py==3.0.0  # Ajouté pour éviter les conflits
+rich==14.0.0           # Ajouté pour éviter les conflits
