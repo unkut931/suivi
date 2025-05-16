@@ -1,7 +1,8 @@
 streamlit==1.32.0
 plotly==5.18.0
 pandas==2.0.3
-numpy==1.24.3
+numpy>=1.26.0  # Version compatible Python 3.12
 streamlit-aggrid==0.3.3
-rich==13.7.1  # Version compatible avec Streamlit 1.32.0
+rich==13.7.1  # Version compatible Streamlit
 markdown-it-py==3.0.0
+setuptools==68.2.2  # Nécessaire pour numpy
