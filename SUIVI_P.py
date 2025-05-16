@@ -170,77 +170,33 @@ if menu == "Dashboard":
 
 elif menu == "Historique":
     st.title("📜 Historique")
-    with st.expander("🔎 Filtres", expanded=True):
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            machine_filter = st.selectbox("Machine", ["Toutes"] + machines_df['nom'].tolist(), key="hist_machine")
-        with col2:
-            shift_filter = st.selectbox("Shift", ["Tous", "matin", "après-midi", "nuit"], key="hist_shift")
-        with col3:
-            date_filter = st.date_input("Date", datetime.today(), key="hist_date")
+    # ... (filtres identiques à ci-dessus)
 
-    # Requête SQL pour l'historique
-    query_hist = """
-    SELECT 
-        m.nom AS Machine,
-        strftime('%Y-%m-%d', p.date) AS Date,
-        p.shift AS Shift,
-        p.objectif AS Objectif,
-        p.realise AS Réalisé,
-        ROUND(CAST(p.realise AS FLOAT) / NULLIF(p.objectif, 0) * 100, 1) AS '% Réalisation',
-        COALESCE(GROUP_CONCAT(a.type || ': ' || a.duree || 'h', ' / '), '-') AS Arrêts,
-        COALESCE(o.commentaire, '-') AS Observation,
-        p.id AS production_id  # Ajout de l'ID pour la suppression
-    FROM production p
-    JOIN machines m ON p.machine_id = m.id
-    LEFT JOIN arrets a ON a.production_id = p.id
-    LEFT JOIN observations o ON o.production_id = p.id
-    WHERE (? = 'Toutes' OR m.nom = ?)
-      AND (? = 'Tous' OR p.shift = ?)
-      AND date(p.date) = date(?)
-    GROUP BY p.id
-    ORDER BY p.date, m.nom;
-    """
-    
-    history_df = pd.read_sql_query(
-        query_hist, conn,
-        params=(machine_filter, machine_filter, shift_filter, shift_filter, date_filter.isoformat())
+    # Configuration de AgGrid
+    gb = GridOptionsBuilder.from_dataframe(history_df)
+    gb.configure_selection(selection_mode='multiple', use_checkbox=True)
+    gb.configure_column("production_id", hide=True)
+    grid_options = gb.build()
+
+    grid_response = AgGrid(
+        history_df,
+        gridOptions=grid_options,
+        update_mode=GridUpdateMode.SELECTION_CHANGED,
+        allow_unsafe_jscode=True,
+        theme='streamlit'
     )
 
-    # Ajout d'une colonne de sélection
-    history_df['Select'] = False
+    selected = grid_response['selected_rows']
     
-    # Fonction pour afficher les cases à cocher
-    def display_with_checkboxes(df):
-        df_copy = df.copy()
-        df_copy['Select'] = [st.checkbox("", key=f"select_{i}", value=False) 
-                           for i in range(len(df))]
-        return df_copy
-
-    st.subheader("Données Historiques")
-    
-    if not history_df.empty:
-        # Afficher les données avec des cases à cocher
-        edited_df = display_with_checkboxes(history_df)
-        st.dataframe(edited_df.drop(columns=['production_id']),  # Masquer l'ID technique
-                    use_container_width=True,
-                    hide_index=True)
-        
-        # Bouton de suppression
-        if st.button("🗑️ Supprimer les lignes sélectionnées"):
-            selected_indices = [i for i, row in enumerate(edited_df['Select']) if row]
-            if selected_indices:
-                for idx in selected_indices:
-                    prod_id = edited_df.iloc[idx]['production_id']
-                    # Suppression en cascade (arrets et observations seront supprimés automatiquement)
-                    cursor.execute("DELETE FROM production WHERE id = ?", (prod_id,))
-                conn.commit()
-                st.success(f"{len(selected_indices)} ligne(s) supprimée(s) avec succès")
-                st.rerun()
-            else:
-                st.warning("Veuillez sélectionner au moins une ligne à supprimer")
-    else:
-        st.info("Aucune donnée disponible pour les critères sélectionnés")
+    if st.button("🗑️ Supprimer les lignes sélectionnées"):
+        if selected:
+            for row in selected:
+                cursor.execute("DELETE FROM production WHERE id = ?", (row['production_id'],))
+            conn.commit()
+            st.success(f"{len(selected)} ligne(s) supprimée(s)")
+            st.rerun()
+        else:
+            st.warning("Veuillez sélectionner au moins une ligne")
 elif menu == "Rapport":
     st.title("📄 Rapport")
     with st.expander("🔎 Filtres", expanded=True):
