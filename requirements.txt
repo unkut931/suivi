@@ -6,3 +6,4 @@ streamlit-aggrid==0.3.3
 rich==13.7.1  # Version compatible Streamlit
 markdown-it-py==3.0.0
 setuptools==68.2.2  # Nécessaire pour numpy
+st-aggrid==0.3.4.post3
