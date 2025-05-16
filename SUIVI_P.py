@@ -8,8 +8,7 @@ from datetime import datetime
 types_arret = ['Panne', 'Attente MP', 'Qualité', 'Réglage', 'MO', 'Attente chariot']
 
 # Définir le chemin vers le bureau
-desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
-db_path = os.path.join(desktop_path, "suivi_jr.db")
+db_path = "suivi_jr.db"
 
 # Connexion à la base de données
 conn = sqlite3.connect(db_path, check_same_thread=False)
