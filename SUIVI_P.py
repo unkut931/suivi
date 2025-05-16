@@ -4,7 +4,7 @@ import sqlite3
 import os
 from datetime import datetime
 import plotly.express as px
-from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
+from st_aggrid import GridOptionsBuilder, AgGrid, GridUpdateMode
 
 st.set_page_config(
     page_title="Suivi de Production",
