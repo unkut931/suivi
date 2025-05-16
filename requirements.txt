@@ -1,3 +1,2 @@
-streamlit
-pandas
-sqlite3
+streamlit>=1.22.0
+pandas>=1.5.3
