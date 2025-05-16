@@ -180,47 +180,68 @@ elif menu == "Historique":
         with col3:
             date_filter = st.date_input("Date", datetime.today(), key="hist_date")
 
-    # Requête SQL modifiée pour formater les dates directement
+    # Requête SQL pour l'historique
     query_hist = """
-    SELECT 
-        m.nom AS Machine,
-        strftime('%Y-%m-%d', p.date) AS Date,  # Formatage SQL de la date
-        p.shift AS Shift,
-        p.objectif AS Objectif,
-        p.realise AS Réalisé,
-        ROUND(CAST(p.realise AS FLOAT) / NULLIF(p.objectif, 0) * 100 AS '% Réalisation',
-        COALESCE(GROUP_CONCAT(a.type || ': ' || a.duree || 'h', ' / '), '-') AS Arrêts,
-        COALESCE(o.commentaire, '-') AS Observation
+    SELECT m.nom AS Machine,
+           p.date AS Date,
+           p.shift AS Shift,
+           p.objectif AS Objectif,
+           p.realise AS Réalisé,
+           ROUND(CAST(p.realise AS FLOAT) / NULLIF(p.objectif, 0) * 100, 1) AS '% Réalisation',
+           COALESCE(GROUP_CONCAT(a.type || ': ' || a.duree || 'h', ' / '), '-') AS Arrêts,
+           COALESCE(o.commentaire, '-') AS Observation
     FROM production p
     JOIN machines m ON p.machine_id = m.id
     LEFT JOIN arrets a ON a.production_id = p.id
     LEFT JOIN observations o ON o.production_id = p.id
     WHERE (? = 'Toutes' OR m.nom = ?)
       AND (? = 'Tous' OR p.shift = ?)
-      AND date(p.date) = date(?)
+      AND p.date = ?
     GROUP BY p.id
     ORDER BY p.date, m.nom;
     """
-    
     history_df = pd.read_sql_query(
         query_hist, conn,
         params=(machine_filter, machine_filter, shift_filter, shift_filter, date_filter.isoformat())
     )
 
-    # Solution alternative : utiliser st.data_editor si AgGrid pose problème
-    st.subheader("Données Historiques")
-    
-    edited_df = st.data_editor(
+    st.subheader("Données Historiques (modifiable)")
+    gb = GridOptionsBuilder.from_dataframe(history_df)
+    gb.configure_default_column(editable=True)
+    gb.configure_selection(selection_mode="single", use_checkbox=True)
+    gridOptions = gb.build()
+
+    grid_response = AgGrid(
         history_df,
-        key="history_editor",
-        num_rows="dynamic",
-        use_container_width=True
+        gridOptions=gridOptions,
+        update_mode=GridUpdateMode.MODEL_CHANGED | GridUpdateMode.SELECTION_CHANGED,
+        allow_unsafe_jscode=True,
+        enable_enterprise_modules=True,
+        height=400
     )
-    
-    # Gestion des modifications
-    if st.button("💾 Enregistrer les modifications"):
-        # Implémentez ici la logique de sauvegarde
-        st.success("Modifications enregistrées"))
+
+    selected = grid_response.get('selected_rows', [])
+    st.write("DEBUG selected:", selected)  # Debug : affiche la sélection
+
+    # Si selected est un DataFrame (rare), convertissez-le en liste de dicts
+    if hasattr(selected, "to_dict"):
+        selected = selected.to_dict(orient="records")
+
+    if isinstance(selected, list) and len(selected) > 0:
+        row = selected[0]
+        st.warning(
+            f"Vous avez sélectionné : Machine={row['Machine']}, Date={row['Date']}, Shift={row['Shift']}"
+        )
+        if st.button("🗑️ Supprimer la ligne sélectionnée"):
+            cursor.execute(
+                "DELETE FROM production WHERE machine_id = (SELECT id FROM machines WHERE nom = ?) AND date = ? AND shift = ?",
+                (row['Machine'], row['Date'], row['Shift'])
+            )
+            conn.commit()
+            st.success("Ligne supprimée.")
+            st.rerun()
+    else:
+        st.info("Sélectionnez une ligne en cochant la case à gauche du tableau.")
 
 elif menu == "Rapport":
     st.title("📄 Rapport")
