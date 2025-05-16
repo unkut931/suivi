@@ -27,7 +27,7 @@ st.markdown("""
 # Définir les causes d'arrêts par défaut
 types_arret = ['Panne', 'Attente MP', 'Qualité', 'Réglage', 'MO', 'Attente chariot']
 
-# Définir le chemin vers le bureau
+# Définir le chemin vers la base de données
 db_path = "suivi_jr.db"
 
 # Connexion à la base de données
@@ -110,6 +110,7 @@ if menu == "Dashboard":
             with col_perc:
                 perc = (realise / objectif) * 100 if objectif > 0 else 0
                 st.metric("% Réalisation", f"{perc:.1f}%" if objectif > 0 else "N/A")
+            
             # Mise à jour base
             if prod:
                 cursor.execute("UPDATE production SET objectif=?, realise=? WHERE id=?", 
@@ -120,6 +121,7 @@ if menu == "Dashboard":
                             (row['id'], date_selected.isoformat(), shift_selected, objectif, realise))
                 prod_id = cursor.lastrowid
             conn.commit()
+            
             # Arrêts
             with st.expander("⛔ Arrêts (en heures)"):
                 cols = st.columns(2)
@@ -130,6 +132,7 @@ if menu == "Dashboard":
                         if duree > 0:
                             cursor.execute("INSERT INTO arrets(production_id, type, duree) VALUES (?,?,?)", (prod_id, type_arret, duree))
                 conn.commit()
+            
             # Observation
             observation = st.text_area(f"📝 Observation", key=f"obs_{row['id']}")
             cursor.execute("DELETE FROM observations WHERE production_id=?", (prod_id,))
@@ -165,10 +168,6 @@ if menu == "Dashboard":
     k2.metric("✅ Réalisé Total", f"{total_realise:,}")
     k3.metric("📊 % Réalisation", f"{perc_total:.1f}%", delta=f"{(perc_total - 100):.1f}%" if total_objectif > 0 else "N/A")
 
-    # Dataframe stylisé
-    def color_percentage(val):
-        color = 'red' if val < 80 else 'orange'
-
 elif menu == "Historique":
     st.title("📜 Historique")
     with st.expander("🔎 Filtres", expanded=True):
@@ -180,68 +179,64 @@ elif menu == "Historique":
         with col3:
             date_filter = st.date_input("Date", datetime.today(), key="hist_date")
 
-    # Requête SQL pour l'historique
+    # Requête SQL modifiée pour formater les dates
     query_hist = """
-    SELECT m.nom AS Machine,
-           p.date AS Date,
-           p.shift AS Shift,
-           p.objectif AS Objectif,
-           p.realise AS Réalisé,
-           ROUND(CAST(p.realise AS FLOAT) / NULLIF(p.objectif, 0) * 100, 1) AS '% Réalisation',
-           COALESCE(GROUP_CONCAT(a.type || ': ' || a.duree || 'h', ' / '), '-') AS Arrêts,
-           COALESCE(o.commentaire, '-') AS Observation
+    SELECT 
+        m.nom AS Machine,
+        strftime('%Y-%m-%d', p.date) AS Date,
+        p.shift AS Shift,
+        p.objectif AS Objectif,
+        p.realise AS Réalisé,
+        ROUND(CAST(p.realise AS FLOAT) / NULLIF(p.objectif, 0) * 100, 1) AS '% Réalisation',
+        COALESCE(GROUP_CONCAT(a.type || ': ' || a.duree || 'h', ' / '), '-') AS Arrêts,
+        COALESCE(o.commentaire, '-') AS Observation
     FROM production p
     JOIN machines m ON p.machine_id = m.id
     LEFT JOIN arrets a ON a.production_id = p.id
     LEFT JOIN observations o ON o.production_id = p.id
     WHERE (? = 'Toutes' OR m.nom = ?)
       AND (? = 'Tous' OR p.shift = ?)
-      AND p.date = ?
+      AND date(p.date) = date(?)
     GROUP BY p.id
     ORDER BY p.date, m.nom;
     """
+    
     history_df = pd.read_sql_query(
         query_hist, conn,
         params=(machine_filter, machine_filter, shift_filter, shift_filter, date_filter.isoformat())
     )
 
-    st.subheader("Données Historiques (modifiable)")
-    gb = GridOptionsBuilder.from_dataframe(history_df)
-    gb.configure_default_column(editable=True)
-    gb.configure_selection(selection_mode="single", use_checkbox=True)
-    gridOptions = gb.build()
-
-    grid_response = AgGrid(
+    # Conversion des types de données
+    history_df['Date'] = history_df['Date'].astype(str)
+    
+    st.subheader("Données Historiques")
+    
+    # Solution avec st.data_editor (recommandé)
+    edited_df = st.data_editor(
         history_df,
-        gridOptions=gridOptions,
-        update_mode=GridUpdateMode.MODEL_CHANGED | GridUpdateMode.SELECTION_CHANGED,
-        allow_unsafe_jscode=True,
-        enable_enterprise_modules=True,
-        height=400
+        key="history_editor",
+        num_rows="fixed",
+        use_container_width=True,
+        disabled=["Machine", "Date", "Shift"]  # Colonnes non modifiables
     )
-
-    selected = grid_response.get('selected_rows', [])
-    st.write("DEBUG selected:", selected)  # Debug : affiche la sélection
-
-    # Si selected est un DataFrame (rare), convertissez-le en liste de dicts
-    if hasattr(selected, "to_dict"):
-        selected = selected.to_dict(orient="records")
-
-    if isinstance(selected, list) and len(selected) > 0:
-        row = selected[0]
-        st.warning(
-            f"Vous avez sélectionné : Machine={row['Machine']}, Date={row['Date']}, Shift={row['Shift']}"
-        )
-        if st.button("🗑️ Supprimer la ligne sélectionnée"):
-            cursor.execute(
-                "DELETE FROM production WHERE machine_id = (SELECT id FROM machines WHERE nom = ?) AND date = ? AND shift = ?",
-                (row['Machine'], row['Date'], row['Shift'])
-            )
-            conn.commit()
-            st.success("Ligne supprimée.")
-            st.rerun()
-    else:
-        st.info("Sélectionnez une ligne en cochant la case à gauche du tableau.")
+    
+    # Gestion de la sélection et suppression
+    if st.button("🗑️ Supprimer la ligne sélectionnée"):
+        if len(edited_df) > 0:
+            selected_indices = st.session_state.get("history_editor", {}).get("edited_rows", {}).keys()
+            if selected_indices:
+                selected_row = history_df.iloc[list(selected_indices)[0]]
+                cursor.execute(
+                    "DELETE FROM production WHERE machine_id = (SELECT id FROM machines WHERE nom = ?) AND date = ? AND shift = ?",
+                    (selected_row['Machine'], selected_row['Date'], selected_row['Shift'])
+                )
+                conn.commit()
+                st.success("Ligne supprimée avec succès")
+                st.rerun()
+            else:
+                st.warning("Veuillez sélectionner une ligne à supprimer")
+        else:
+            st.warning("Aucune donnée disponible")
 
 elif menu == "Rapport":
     st.title("📄 Rapport")
@@ -252,9 +247,11 @@ elif menu == "Rapport":
             end_date = st.date_input("Date de fin", datetime.today())
         with col2:
             machine_filter = st.selectbox("Machine", ["Toutes"] + machines_df['nom'].tolist())
+    
     if start_date > end_date:
         st.error("⚠️ La date de début doit être antérieure ou égale à la date de fin.")
     else:
+        # Analyse des Arrêts
         query_arrets = """
         SELECT a.type AS Type_Arret,
                SUM(a.duree) AS Total_Heures,
@@ -282,6 +279,8 @@ elif menu == "Rapport":
                 fig = px.pie(arrets_df, values='Total_Heures', names='Type_Arret',
                              title="Répartition des temps d'arrêt")
                 st.plotly_chart(fig, use_container_width=True)
+        
+        # Synthèse de Production
         st.subheader("📋 Synthèse de Production")
         query_report = """
         SELECT 
@@ -305,18 +304,13 @@ elif menu == "Rapport":
         report_df["% Réalisation"] = report_df.apply(
             lambda row: round((row["Réalisé"] / row["Objectif"] * 100), 1) if row["Objectif"] > 0 else 0, axis=1
         )
-
-        # Affichage avec le % en format %
         report_df["% Réalisation"] = report_df["% Réalisation"].astype(str) + " %"
 
         st.dataframe(report_df)
 
+        # Analyses Avancées
         st.header("📊 Analyses Avancées")
-        tab1, tab2, tab3 = st.tabs([
-            "Évolution Temporelle", 
-            "Heatmap des Arrêts", 
-            "Comparaison Shifts"
-        ])
+        tab1, tab2, tab3 = st.tabs(["Évolution Temporelle", "Heatmap des Arrêts", "Comparaison Shifts"])
 
         with tab1:
             query_evolution = """
@@ -413,4 +407,3 @@ elif menu == "Rapport":
                     st.plotly_chart(fig, use_container_width=True)
             else:
                 st.warning("Aucune donnée disponible pour comparer les shifts")
-
